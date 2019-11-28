@@ -1,0 +1,72 @@
+#!/usr/bin/python3
+
+import argparse, gi, sys, os
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, Gdk, GdkPixbuf, Gio
+
+parser = argparse.ArgumentParser(description='gclip - xclip rewritten in PyGtk')
+parser.add_argument('-i', '-in', action='store_true', help='read text into X selection from standard input or files (default)', dest='input')
+parser.add_argument('-o', '-out', action='store_true', help='print the selection to standard out', dest='output')
+parser.add_argument('-r', '-rmlastnl', action='store_true', help='when the last character is a newline character, remove it')
+parser.add_argument('-t', '-target', action='store', default='text/plain', help='specify a particular data format using the given target atom')
+parser.add_argument('-d', '-display', action='store', default=None, help='X display to use')
+parser.add_argument('-sel', '-selection', action='store', default='primary', help='specify which X selection to use')
+parser.add_argument('-n', '-nodetach', action='store_true', help='do not detach from the controlling terminal')
+parser.add_argument('filename', action='store', default=None, nargs='?')
+
+first_time = True
+def on_owner_change(clipboard, event):
+    global first_time
+    if first_time:
+        first_time = False
+    else:
+        Gtk.main_quit()
+
+def on_request_content(clipboard, selection_data):
+    if selection_data.get_length() < 0:
+        print('Failed to get selection data', file=sys.stderr)
+        exit(1)
+    sys.stdout.buffer.write(selection_data.get_data())
+    Gtk.main_quit()
+
+if __name__ == '__main__':
+    try:
+        args = parser.parse_args()
+        if 'primary'.startswith(args.sel):
+            clipboard = Gtk.Clipboard.get(Gdk.SELECTION_PRIMARY)
+        elif 'secondary'.startswith(args.sel):
+            clipboard = Gtk.Clipboard.get(Gdk.SELECTION_SECONDARY)
+        elif 'clipboard'.startswith(args.sel):
+            clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+        else:
+            raise Exception('Unsupported selection.')
+        if args.input or not args.output:
+            if args.filename is None:
+                stream = sys.stdin.buffer
+            else:
+                stream = open(args.filename, 'rb')
+            data = stream.read()
+            if not args.n:
+                if os.fork() != 0:
+                    exit()
+            if args.t == 'text' or args.t == 'text/plain':
+                text = data.decode(errors='ignore')
+                if args.r and text[-1] == '\n':
+                    clipboard.set_text(text, len(text) - 1)
+                else:
+                    clipboard.set_text(text, len(text))
+            elif args.t == 'image' or args.t.startswith('image/'):
+                clipboard.set_image(
+                    GdkPixbuf.Pixbuf.new_from_stream(
+                        Gio.MemoryInputStream.new_from_data(data)
+                    )
+                )
+            else:
+                raise Exception('Unsupported target. Only text/plain and images are supported.')
+            clipboard.connect("owner-change", on_owner_change)
+        else:
+            clipboard.request_contents(Gdk.Atom.intern(args.t, False), on_request_content)
+        Gtk.main()
+    except Exception as e:
+        print(e, file=sys.stderr)
+        exit(1)
