@@ -29,17 +29,25 @@ def on_request_content(clipboard, selection_data):
     sys.stdout.buffer.write(selection_data.get_data())
     Gtk.main_quit()
 
+def get_clipboard(sel, display=None):
+    if 'primary'.startswith(sel):
+        selection = Gdk.SELECTION_PRIMARY
+    elif 'secondary'.startswith(sel):
+        selection = Gdk.SELECTION_SECONDARY
+    elif 'clipboard'.startswith(sel):
+        selection = Gdk.SELECTION_CLIPBOARD
+    else:
+        raise Exception('Unsupported selection.')
+    if display is None:
+        clipboard = Gtk.Clipboard.get(selection)
+    else:
+        clipboard = Gtk.Clipboard.get_for_display(Gdk.Display.open(display), selection)
+    return clipboard
+
 if __name__ == '__main__':
     try:
         args = parser.parse_args()
-        if 'primary'.startswith(args.sel):
-            clipboard = Gtk.Clipboard.get(Gdk.SELECTION_PRIMARY)
-        elif 'secondary'.startswith(args.sel):
-            clipboard = Gtk.Clipboard.get(Gdk.SELECTION_SECONDARY)
-        elif 'clipboard'.startswith(args.sel):
-            clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
-        else:
-            raise Exception('Unsupported selection.')
+        clipboard = get_clipboard(args.sel, args.d)
         if args.input or not args.output:
             if args.filename is None:
                 stream = sys.stdin.buffer
@@ -51,7 +59,7 @@ if __name__ == '__main__':
                     exit()
             if args.t == 'text' or args.t == 'text/plain':
                 text = data.decode(errors='ignore')
-                if args.r and text[-1] == '\n':
+                if args.r and len(text) > 0 and text[-1] == '\n':
                     clipboard.set_text(text, len(text) - 1)
                 else:
                     clipboard.set_text(text, len(text))
